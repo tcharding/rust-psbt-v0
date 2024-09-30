@@ -39,6 +39,7 @@ use std::collections::{HashMap, HashSet};
 use bitcoin::bip32::{self, KeySource, Xpriv, Xpub};
 use bitcoin::blockdata::transaction::{self, Transaction, TxOut};
 use bitcoin::key::{PrivateKey, PublicKey, TapTweak, XOnlyPublicKey};
+use bitcoin::script::ScriptExt;
 use bitcoin::secp256k1::{Keypair, Message, Secp256k1, Signing, Verification};
 use bitcoin::sighash::{self, EcdsaSighashType, Prevouts, SighashCache};
 use bitcoin::{ecdsa, taproot, Amount, FeeRate, TapLeafHash, TapSighashType};
@@ -778,7 +779,7 @@ impl GetKey for Xpriv {
             KeyRequest::Pubkey(_) => Err(GetKeyError::NotSupported),
             KeyRequest::Bip32((fingerprint, path)) => {
                 let key = if self.fingerprint(secp) == fingerprint {
-                    let k = self.derive_priv(secp, &path)?;
+                    let k = self.derive_priv(secp, &path);
                     Some(k.to_priv())
                 } else {
                     None
@@ -824,7 +825,7 @@ impl GetKey for $set<Xpriv> {
             KeyRequest::Bip32((fingerprint, path)) => {
                 for xpriv in self.iter() {
                     if xpriv.parent_fingerprint == fingerprint {
-                        let k = xpriv.derive_priv(secp, &path)?;
+                        let k = xpriv.derive_priv(secp, &path);
                         return Ok(Some(k.to_priv()));
                     }
                 }
@@ -1241,9 +1242,11 @@ mod prelude {
 #[cfg(test)]
 mod tests {
     use bitcoin::bip32::ChildNumber;
-    use bitcoin::hashes::{hash160, ripemd160, sha256, Hash};
+    use bitcoin::hashes::{hash160, ripemd160, sha256};
     use bitcoin::hex::{test_hex_unwrap as hex, FromHex};
     use bitcoin::locktime::absolute;
+    use bitcoin::script::ScriptBufExt as _;
+    use bitcoin::address::script_pubkey::{ScriptBufExt as _, ScriptExt as _};
     #[cfg(feature = "rand-std")]
     use bitcoin::secp256k1::{All, SecretKey};
     use bitcoin::{
@@ -1400,7 +1403,7 @@ mod tests {
             ChildNumber::from_normal_idx(31337).unwrap(),
         ];
 
-        sk = sk.derive_priv(secp, &dpath).unwrap();
+        sk = sk.derive_priv(secp, &dpath);
 
         let pk = Xpub::from_priv(secp, &sk);
 
@@ -1791,10 +1794,10 @@ mod tests {
 
             assert!(redeem_script.is_p2wpkh());
             assert_eq!(
-                redeem_script.to_p2sh(),
+                redeem_script.to_p2sh().unwrap(),
                 psbt.inputs[1].witness_utxo.as_ref().unwrap().script_pubkey
             );
-            assert_eq!(redeem_script.to_p2sh(), expected_out);
+            assert_eq!(redeem_script.to_p2sh(), Ok(expected_out));
 
             for output in psbt.outputs {
                 assert_eq!(output.get_pairs().len(), 0)
@@ -1837,10 +1840,10 @@ mod tests {
 
             assert!(redeem_script.is_p2wpkh());
             assert_eq!(
-                redeem_script.to_p2sh(),
-                psbt.inputs[1].witness_utxo.as_ref().unwrap().script_pubkey
+                redeem_script.to_p2sh().unwrap(),
+                psbt.inputs[1].witness_utxo.as_ref().unwrap().script_pubkey,
             );
-            assert_eq!(redeem_script.to_p2sh(), expected_out);
+            assert_eq!(redeem_script.to_p2sh(), Ok(expected_out));
 
             for output in psbt.outputs {
                 assert!(!output.get_pairs().is_empty())
@@ -1862,11 +1865,11 @@ mod tests {
 
             assert!(redeem_script.is_p2wsh());
             assert_eq!(
-                redeem_script.to_p2sh(),
+                redeem_script.to_p2sh().unwrap(),
                 psbt.inputs[0].witness_utxo.as_ref().unwrap().script_pubkey
             );
 
-            assert_eq!(redeem_script.to_p2sh(), expected_out);
+            assert_eq!(redeem_script.to_p2sh().unwrap(), expected_out);
         }
 
         #[test]
@@ -2154,7 +2157,7 @@ mod tests {
 
         let sk = SecretKey::new(&mut thread_rng());
         let priv_key = PrivateKey::new(sk, NetworkKind::Test);
-        let pk = PublicKey::from_private_key(&secp, &priv_key);
+        let pk = PublicKey::from_private_key(&secp, priv_key);
 
         (priv_key, pk, secp)
     }
@@ -2188,7 +2191,7 @@ mod tests {
                             vout: 0,
                         },
                         sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
-                        ..Default::default()
+                        ..TxIn::EMPTY_COINBASE
                     }
                 ],
                 output: vec![
@@ -2219,7 +2222,7 @@ mod tests {
                                     vout: 1,
                                 },
                                 sequence: Sequence::MAX,
-                                ..Default::default()
+                                ..TxIn::EMPTY_COINBASE
                             },
                             TxIn {
                                 previous_output: OutPoint {
@@ -2227,7 +2230,7 @@ mod tests {
                                     vout: 1,
                                 },
                                 sequence: Sequence::MAX,
-                                ..Default::default()
+                                ..TxIn::EMPTY_COINBASE
                             }
                         ],
                         output: vec![
@@ -2285,12 +2288,12 @@ mod tests {
     fn sign_psbt() {
         use bitcoin::bip32::{DerivationPath, Fingerprint};
         use bitcoin::witness_version::WitnessVersion;
-        use bitcoin::{WPubkeyHash, WitnessProgram};
+        use bitcoin::WitnessProgram;
 
         let unsigned_tx = Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn::default(), TxIn::default()],
+            input: vec![TxIn::EMPTY_COINBASE, TxIn::EMPTY_COINBASE],
             output: vec![TxOut::NULL],
         };
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx).unwrap();
@@ -2305,7 +2308,7 @@ mod tests {
         // First input we can spend. See comment above on key_map for why we use defaults here.
         let txout_wpkh = TxOut {
             value: Amount::from_sat(10),
-            script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::hash(&pk.to_bytes())),
+            script_pubkey: ScriptBuf::new_p2wpkh(pk.wpubkey_hash().unwrap()),
         };
         psbt.inputs[0].witness_utxo = Some(txout_wpkh);
 

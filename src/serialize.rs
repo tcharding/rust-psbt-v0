@@ -8,7 +8,7 @@
 
 use bitcoin::bip32::{ChildNumber, Fingerprint, KeySource};
 use bitcoin::consensus::encode::{self, deserialize_partial, serialize, Decodable, Encodable};
-use bitcoin::hashes::{hash160, ripemd160, sha256, sha256d, Hash};
+use bitcoin::hashes::{hash160, ripemd160, sha256, sha256d};
 use bitcoin::hex::DisplayHex as _;
 use bitcoin::secp256k1::{self, XOnlyPublicKey};
 use bitcoin::taproot::{
@@ -170,10 +170,9 @@ impl Deserialize for ecdsa::Signature {
         // 0x05, the sighash message would have the last field as 0x05u32 while, the verification
         // would use check the signature assuming sighash_u32 as `0x01`.
         ecdsa::Signature::from_slice(bytes).map_err(|e| match e {
-            ecdsa::Error::EmptySignature => Error::InvalidEcdsaSignature(e),
-            ecdsa::Error::SighashType(err) => Error::NonStandardSighashType(err.0),
-            ecdsa::Error::Secp256k1(..) => Error::InvalidEcdsaSignature(e),
-            ecdsa::Error::Hex(..) => unreachable!("Decoding from slice, not hex"),
+            ecdsa::DecodeError::SighashType(err) => Error::NonStandardSighashType(err.0),
+            ecdsa::DecodeError::EmptySignature => Error::InvalidEcdsaSignature(e),
+            ecdsa::DecodeError::Secp256k1(..) => Error::InvalidEcdsaSignature(e),
             _ => todo!("handle this properly"),
         })
     }
@@ -183,7 +182,7 @@ impl Serialize for KeySource {
     fn serialize(&self) -> Vec<u8> {
         let mut rv: Vec<u8> = Vec::with_capacity(key_source_len(self));
 
-        rv.append(&mut self.0.to_bytes().to_vec());
+        rv.append(&mut self.0.as_bytes().to_vec());
 
         for cnum in self.1.into_iter() {
             rv.append(&mut serialize(&u32::from(*cnum)))
@@ -383,6 +382,7 @@ fn key_source_len(key_source: &KeySource) -> usize { 4 + 4 * (key_source.1).as_r
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitcoin::script::ScriptBufExt;
 
     // Composes tree matching a given depth map, filled with dumb script leafs,
     // each of which consists of a single push-int op code, with int value
@@ -412,7 +412,7 @@ mod tests {
                 LeafVersion::from_consensus(0xC2).unwrap(),
             )
             .unwrap();
-        builder = builder.add_hidden_node(3, TapNodeHash::all_zeros()).unwrap();
+        builder = builder.add_hidden_node(3, TapNodeHash::from_byte_array([0; 32])).unwrap();
         assert!(TapTree::try_from(builder).is_err());
     }
 

@@ -24,8 +24,8 @@ rand = ["bitcoin/rand"]
 serde = ["actual-serde", "bitcoin/serde", "bitcoin-internals/serde"]
 
 [dependencies]
-bitcoin = { version = "0.32.2", default-features = false }
-bitcoin-internals = { version = "0.3.0", features = ["alloc"] }
+bitcoin = { version = "0.32.4", default-features = false }
+bitcoin-internals = { version = "0.4.0", features = ["alloc"] }
 
 base64 = { version = "0.21.3", optional = true }
 
@@ -42,3 +42,27 @@ secp256k1 = { version = "0.29", features = ["rand-std", "global-context"] }
 [[example]]
 name = "multisig"
 required-features = ["rand-std"]
+
+[patch.crates-io.bitcoin-addresses]
+path = "../../rust-bitcoin/master/addresses"
+
+[patch.crates-io.base58ck]
+path = "../../rust-bitcoin/master/base58"
+
+[patch.crates-io.bitcoin]
+path = "../../rust-bitcoin/master/bitcoin"
+
+[patch.crates-io.bitcoin_hashes]
+path = "../../rust-bitcoin/master/hashes"
+
+[patch.crates-io.bitcoin-internals]
+path = "../../rust-bitcoin/master/internals"
+
+[patch.crates-io.bitcoin-io]
+path = "../../rust-bitcoin/master/io"
+
+[patch.crates-io.bitcoin-primitives]
+path = "../../rust-bitcoin/master/primitives"
+
+[patch.crates-io.bitcoin-units]
+path = "../../rust-bitcoin/master/units"

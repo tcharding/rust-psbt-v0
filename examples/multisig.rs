@@ -8,7 +8,6 @@
 
 use std::collections::BTreeMap;
 
-use psbt_v0::bitcoin::hashes::Hash as _;
 use psbt_v0::bitcoin::locktime::absolute;
 use psbt_v0::bitcoin::opcodes::all::OP_CHECKMULTISIG;
 use psbt_v0::bitcoin::secp256k1::{self, rand, SECP256K1};
@@ -16,6 +15,7 @@ use psbt_v0::bitcoin::{
     script, transaction, Address, Amount, CompressedPublicKey, Network, OutPoint, PublicKey,
     ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
+use psbt_v0::bitcoin::address::script_pubkey::{BuilderExt as _, ScriptBufExt as _};
 use psbt_v0::Psbt;
 
 pub const DUMMY_UTXO_AMOUNT: Amount = Amount::from_sat(20_000_000);
@@ -63,8 +63,8 @@ fn main() -> anyhow::Result<()> {
     let change = TxOut { value: change_value_a, script_pubkey: change_address_a.script_pubkey() };
 
     // Create the witness script, receive address, and the locking script.
-    let witness_script = multisig_witness_script(&pk_a, &pk_b);
-    let address = Address::p2wsh(&witness_script, MAINNET);
+    let witness_script = multisig_witness_script(pk_a, pk_b);
+    let address = Address::p2wsh(&witness_script, MAINNET).expect("valid witness script");
     let value = SPEND_AMOUNT * 2 - FEE;
     // The spend output is locked by the witness script.
     let multi = TxOut { value, script_pubkey: address.script_pubkey() };
@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Now the creator can create the PSBT.
-    let mut psbt = Psbt::from_unsigned_tx(tx)?;
+    let mut psbt = Psbt::from_unsigned_tx(tx).expect("TODO: ? doesn't work for some reason");
 
     // Update the PSBT with the inputs described by `previous_output_a` and `previous_output_b`
     // above, here we get them from Alice and Bob, typically the update would have access to chain
@@ -98,12 +98,12 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Creates a 2-of-2 multisig script locking to a and b's keys.
-fn multisig_witness_script(a: &PublicKey, b: &PublicKey) -> ScriptBuf {
+fn multisig_witness_script(a: PublicKey, b: PublicKey) -> ScriptBuf {
     script::Builder::new()
-        .push_int(2)
+        .push_int_unchecked(2)
         .push_key(a)
         .push_key(b)
-        .push_int(2)
+        .push_int_unchecked(2)
         .push_opcode(OP_CHECKMULTISIG)
         .into_script()
 }
@@ -123,12 +123,12 @@ impl Alice {
     pub fn contribute_to_multisig(&self) -> (OutPoint, Address, Amount) {
         // An obviously invalid output, we just use all zeros then use the `vout` to differentiate
         // Alice's output from Bob's.
-        let out = OutPoint { txid: Txid::all_zeros(), vout: 0 };
+        let out = OutPoint { txid: Txid::COINBASE_PREVOUT, vout: 0 };
 
         // The usual caveat about reusing addresses applies here, this is just an example.
         let compressed =
             CompressedPublicKey::try_from(self.public_key()).expect("uncompressed key");
-        let address = Address::p2wpkh(&compressed, Network::Bitcoin);
+        let address = Address::p2wpkh(compressed, Network::Bitcoin);
 
         // This is a made up value, it is supposed to represent the outpoints value minus the value
         // contributed to the multisig.
@@ -141,7 +141,7 @@ impl Alice {
     pub fn input_utxo(&self) -> TxOut {
         // A dummy script_pubkey representing a UTXO that is locked to a pubkey that Alice controls.
         let script_pubkey =
-            ScriptBuf::new_p2wpkh(&self.public_key().wpubkey_hash().expect("uncompressed key"));
+            ScriptBuf::new_p2wpkh(self.public_key().wpubkey_hash().expect("uncompressed key"));
         TxOut { value: DUMMY_UTXO_AMOUNT, script_pubkey }
     }
 
@@ -167,14 +167,14 @@ impl Bob {
     pub fn contribute_to_multisig(&self) -> OutPoint {
         // An obviously invalid output, we just use all zeros then use the `vout` to differentiate
         // Alice's output from Bob's.
-        OutPoint { txid: Txid::all_zeros(), vout: 1 }
+        OutPoint { txid: Txid::COINBASE_PREVOUT, vout: 1 }
     }
 
     /// Provides the actual UTXO that Alice is contributing, this would usually come from the chain.
     pub fn input_utxo(&self) -> TxOut {
         // A dummy script_pubkey representing a UTXO that is locked to a pubkey that Bob controls.
         let script_pubkey =
-            ScriptBuf::new_p2wpkh(&self.public_key().wpubkey_hash().expect("uncompressed key"));
+            ScriptBuf::new_p2wpkh(self.public_key().wpubkey_hash().expect("uncompressed key"));
         TxOut { value: DUMMY_UTXO_AMOUNT, script_pubkey }
     }
 

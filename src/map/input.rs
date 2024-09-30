@@ -4,7 +4,7 @@ use core::fmt;
 use core::str::FromStr;
 
 use bitcoin::bip32::KeySource;
-use bitcoin::hashes::{hash160, ripemd160, sha256, sha256d};
+use bitcoin::hashes::{self, hash160, ripemd160, sha256, sha256d};
 use bitcoin::secp256k1::{self, XOnlyPublicKey};
 use bitcoin::sighash::{
     EcdsaSighashType, InvalidSighashTypeError, NonStandardSighashTypeError, TapSighashType,
@@ -520,7 +520,7 @@ fn psbt_insert_hash_pair<H>(
     hash_type: error::PsbtHash,
 ) -> Result<(), Error>
 where
-    H: bitcoin::hashes::Hash + Deserialize,
+    H: hashes::GeneralHash + Deserialize, <H as hashes::GeneralHash>::Engine: std::default::Default
 {
     if raw_key.key.is_empty() {
         return Err(Error::InvalidKey(raw_key));
@@ -529,10 +529,10 @@ where
     match map.entry(key_val) {
         btree_map::Entry::Vacant(empty_key) => {
             let val: Vec<u8> = Deserialize::deserialize(&raw_value)?;
-            if <H as bitcoin::hashes::Hash>::hash(&val) != key_val {
+            if <H as bitcoin::hashes::GeneralHash>::hash(&val) != key_val {
                 return Err(Error::InvalidPreimageHashPair {
                     preimage: val.into_boxed_slice(),
-                    hash: Box::from(key_val.borrow()),
+                    hash: Box::from(key_val.as_ref()),
                     hash_type,
                 });
             }

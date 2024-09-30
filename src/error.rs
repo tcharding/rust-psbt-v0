@@ -82,7 +82,7 @@ pub enum Error {
     /// Parsing error indicating invalid xonly public keys
     InvalidXOnlyPublicKey,
     /// Parsing error indicating invalid ECDSA signatures
-    InvalidEcdsaSignature(ecdsa::Error),
+    InvalidEcdsaSignature(ecdsa::DecodeError),
     /// Parsing error indicating invalid taproot signatures
     InvalidTaprootSignature(taproot::SigFromSliceError),
     /// Parsing error indicating invalid control block
